@@ -8,6 +8,9 @@ import hashlib
 import hmac
 import sys
 import os
+from PIL import Image
+import numpy as np
+from io import BytesIO
 
 # ======================
 # 基础配置
@@ -96,6 +99,49 @@ def signV4Request(access_key, secret_key, service, req_query, req_body):
     except Exception as e:
         print("Request error:", e)
         return None
+    
+
+def load_image_from_url(url):
+    r = requests.get(url, timeout=20)
+    r.raise_for_status()
+    return Image.open(BytesIO(r.content)).convert("RGBA")
+
+def crop_by_mask(image: Image.Image, mask: Image.Image, out_size=256):
+    """
+    image: 原图 (RGB / RGBA)
+    mask:  二值 mask (0 / 255), L / RGB / RGBA
+    """
+
+    mask_np = np.array(mask)
+
+    # 统一成单通道 mask
+    if mask_np.ndim == 3:
+        mask_bin = mask_np[:, :, 0]
+    else:
+        mask_bin = mask_np
+
+    # 找 mask == 255 的区域
+    ys, xs = np.where(mask_bin == 255)
+    if len(xs) == 0:
+        return None
+
+    x1, x2 = xs.min(), xs.max()
+    y1, y2 = ys.min(), ys.max()
+
+    # 裁剪（右下角要 +1）
+    cropped = image.crop((x1, y1, x2 + 1, y2 + 1))
+
+    # === 按最长边缩放 ===
+    w, h = cropped.size
+    scale = out_size / max(w, h)
+    new_w = int(round(w * scale))
+    new_h = int(round(h * scale))
+
+    cropped = cropped.resize((new_w, new_h), Image.BILINEAR)
+
+    return cropped
+
+
 
 # ======================
 # Streamlit 状态初始化
@@ -133,12 +179,19 @@ def save_uploaded_file(uploaded_file, suffix):
         f.write(uploaded_file.getbuffer())
     return f"{PUBLIC_BASE_URL}/{filename}"
 
+def save_Image_file(image_file, suffix):
+    filename = f"{uuid.uuid4().hex}.{suffix}"
+    path = os.path.join(UPLOAD_DIR, filename)
+    print(path)
+    image_file.save(path)
+    return f"{PUBLIC_BASE_URL}/{filename}"
+
 
 # ======================
 # UI
 # ======================
-st.set_page_config("即梦真人头像视频生成", layout="centered")
-st.title("🎬 即梦 · 真人头像视频生成（完整整合版）")
+st.set_page_config("即梦数字人视频生成", layout="centered")
+st.title("🎬 即梦 · 数字人视频生成（完整整合版）")
 
 st.markdown("### 🔐 凭证")
 access_key = st.text_input("Access Key", type="password")
@@ -153,6 +206,15 @@ secret_key = st.text_input("Secret Key", type="password")
 #     "音频 URL",
 #     "https://intellectual-western-lake-mainland.trycloudflare.com/output.mp3"
 # )
+
+st.markdown("### ✏️ 驱动 Prompt")
+
+prompt = st.text_area(
+    "请输入生成提示词（可选）",
+    placeholder="例如：自然表情，说话时嘴型清晰，真实光照，稳定人脸",
+    height=100
+)
+
 
 st.markdown("### 📥 输入（拖拽）")
 
@@ -206,18 +268,80 @@ if st.session_state.stage == "idle":
             resp_data = json.loads(resp["data"]["resp_data"])
             st.session_state.mask_list = resp_data["object_detection_result"]["mask"]["url"]
             st.session_state.stage = "detected"
+           
+
+
+            origin_img = load_image_from_url(image_url)
+
+            mask_urls_ = resp_data["object_detection_result"]["mask"]["url"]
+
+            visual_masks = []
+
+            mask_urls = []
+
+            for url in mask_urls_:
+                mask_img = load_image_from_url(url)
+                mask_urls.append(save_Image_file(mask_img, "png"))
+            
+            for url in mask_urls:
+                try:
+                    mask_img = load_image_from_url(url)
+                    preview = crop_by_mask(origin_img, mask_img)
+
+                    if preview:
+                        visual_masks.append({
+                            "mask_url": url,
+                            "preview": preview
+                        })
+                except Exception as e:
+                    print("mask error:", e)
+
+            visual_masks.append({
+                "mask_url": None,            # 关键：None 表示不使用 mask
+                "preview": origin_img.resize((256, 256)),
+                "label": "原图（不使用 Mask）"
+            })
+
+            st.session_state.masks = visual_masks
+            st.session_state.stage = "detected"
+
             st.experimental_rerun()
+
 
 # ======================
 # Step 2：选择 mask
 # ======================
+# if st.session_state.stage == "detected":
+#     st.success(f"检测完成，共 {len(st.session_state.mask_list)} 个 mask")
+#     st.session_state.selected_mask = st.selectbox(
+#         "请选择一个 mask",
+#         st.session_state.mask_list
+#     )
+#     if st.button("➡️ 使用该 mask"):
+#         st.session_state.stage = "mask_selected"
+#         st.experimental_rerun()
 if st.session_state.stage == "detected":
-    st.success(f"检测完成，共 {len(st.session_state.mask_list)} 个 mask")
-    st.session_state.selected_mask = st.selectbox(
-        "请选择一个 mask",
-        st.session_state.mask_list
-    )
-    if st.button("➡️ 使用该 mask"):
+    st.success(f"检测完成，共 {len(st.session_state.masks)} 个主体")
+
+    cols = st.columns(4)
+    selected_index = None
+
+    # for i, item in enumerate(st.session_state.masks):
+    #     with cols[i % 4]:
+    #         st.image(item["preview"], width=220)
+    #         if st.button(f"选择 #{i+1}", key=f"mask_{i}"):
+    #             selected_index = i
+    for i, item in enumerate(st.session_state.masks):
+        with cols[i % 4]:
+            st.image(item["preview"], width=220)
+
+            label = f"主体 #{i}" if item["mask_url"] is not None else '原图'
+            if st.button(f"选择 {label}", key=f"mask_{i}"):
+                selected_index = i
+
+
+    if selected_index is not None:
+        st.session_state.selected_mask = st.session_state.masks[selected_index]["mask_url"]
         st.session_state.stage = "mask_selected"
         st.experimental_rerun()
 
@@ -230,8 +354,9 @@ if st.session_state.stage == "mask_selected":
         body = json.dumps({
             "req_key": "jimeng_realman_avatar_picture_omni_v15",
             "image_url": image_url,
-            "mask_url": [st.session_state.selected_mask],
-            "audio_url": audio_url
+            "mask_url": [st.session_state.selected_mask] if st.session_state.selected_mask else [],
+            "audio_url": audio_url,
+            "prompt": prompt
         })
 
         resp_str = signV4Request(access_key, secret_key, service, query, body)
@@ -272,27 +397,65 @@ if st.session_state.stage == "submitted":
 # ======================
 # Step 5：结果 + 下载
 # ======================
+# if st.session_state.stage == "done":
+#     st.success("🎉 生成完成")
+#     st.video(st.session_state.video_url)
+
+#     video_path = "result.mp4"
+#     if not os.path.exists(video_path):
+#         with requests.get(st.session_state.video_url, stream=True) as r:
+#             with open(video_path, "wb") as f:
+#                 for chunk in r.iter_content(1024 * 1024):
+#                     if chunk:
+#                         f.write(chunk)
+
+#     with open(video_path, "rb") as f:
+#         st.download_button(
+#             "📥 下载视频",
+#             f,
+#             file_name="result.mp4",
+#             mime="video/mp4"
+#         )
+
+#     if st.button("🔄 重新开始"):
+#         for k in list(st.session_state.keys()):
+#             del st.session_state[k]
+#         st.experimental_rerun()
+
+import uuid
+from datetime import datetime
+
 if st.session_state.stage == "done":
     st.success("🎉 生成完成")
     st.video(st.session_state.video_url)
 
-    video_path = "result.mp4"
+    # === 生成 日期 + UUID 文件名 ===
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    uid = uuid.uuid4().hex[:8]
+    filename = f"result_{date_str}_{uid}.mp4"
+    video_path = os.path.join("res", filename)  # 可改为你想保存的目录
+
+    # === 下载并缓存 ===
     if not os.path.exists(video_path):
         with requests.get(st.session_state.video_url, stream=True) as r:
+            r.raise_for_status()
             with open(video_path, "wb") as f:
                 for chunk in r.iter_content(1024 * 1024):
                     if chunk:
                         f.write(chunk)
 
+    # === 下载按钮 ===
     with open(video_path, "rb") as f:
         st.download_button(
             "📥 下载视频",
             f,
-            file_name="result.mp4",
+            file_name=filename,
             mime="video/mp4"
         )
 
+    # === 重置 ===
     if st.button("🔄 重新开始"):
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.experimental_rerun()
+
