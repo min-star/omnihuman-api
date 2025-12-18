@@ -191,271 +191,314 @@ def save_Image_file(image_file, suffix):
 # UI
 # ======================
 st.set_page_config("即梦数字人视频生成", layout="centered")
-st.title("🎬 即梦 · 数字人视频生成（完整整合版）")
-
-st.markdown("### 🔐 凭证")
-access_key = st.text_input("Access Key", type="password")
-secret_key = st.text_input("Secret Key", type="password")
-
-# st.markdown("### 📥 输入")
-# image_url = st.text_input(
-#     "图片 URL",
-#     "https://intellectual-western-lake-mainland.trycloudflare.com/last.jpg"
-# )
-# audio_url = st.text_input(
-#     "音频 URL",
-#     "https://intellectual-western-lake-mainland.trycloudflare.com/output.mp3"
-# )
-
-st.markdown("### ✏️ 驱动 Prompt")
-
-prompt = st.text_area(
-    "请输入生成提示词（可选）",
-    placeholder="例如：自然表情，说话时嘴型清晰，真实光照，稳定人脸",
-    height=100
+page = st.sidebar.radio(
+    "📄 页面",
+    ["📘 使用说明", "🎬 视频生成"]
 )
 
 
-st.markdown("### 📥 输入（拖拽）")
+if page == "📘 使用说明":
+    st.title("📘 即梦数字人视频生成 · 使用说明")
 
-col1, col2 = st.columns(2)
+    st.markdown("""
+    ## 使用流程
 
-with col1:
-    uploaded_image = st.file_uploader(
-        "🖼 拖拽图片（JPG / PNG）",
-        type=["jpg", "jpeg", "png"]
+    1️⃣ **输入凭证**  
+    - 输入 Access Key / Secret Key
+
+    2️⃣ **上传素材**  
+    - 上传一张人物图片  
+    - 上传一段音频文件
+
+    3️⃣ **（可选）输入 Prompt**  
+    - 用于控制表情、风格、稳定性
+
+    4️⃣ **开始检测**  
+    - 点击「开始检测」
+    - 系统自动检测人物主体
+
+    5️⃣ **选择主体**
+    - 从检测结果中选择一个主体
+    - 或选择原图（不使用 Mask）
+
+    6️⃣ **等待生成**
+    - 自动提交任务并轮询状态
+
+    7️⃣ **预览与下载**
+    - 在线预览视频
+    - 下载生成结果
+    """)
+
+    st.info("👈 点击左侧「视频生成」开始使用")
+    st.stop()   # ⭐ 非常关键：阻止后续功能页代码执行
+
+if page == "🎬 视频生成":
+    st.title("🎬 即梦 · 数字人视频生成（完整整合版）")
+
+
+    st.markdown("### 🔐 凭证")
+    access_key = st.text_input("Access Key", type="password")
+    secret_key = st.text_input("Secret Key", type="password")
+
+    # st.markdown("### 📥 输入")
+    # image_url = st.text_input(
+    #     "图片 URL",
+    #     "https://intellectual-western-lake-mainland.trycloudflare.com/last.jpg"
+    # )
+    # audio_url = st.text_input(
+    #     "音频 URL",
+    #     "https://intellectual-western-lake-mainland.trycloudflare.com/output.mp3"
+    # )
+
+    st.markdown("### ✏️ 驱动 Prompt")
+
+    prompt = st.text_area(
+        "请输入生成提示词（可选）",
+        placeholder="例如：自然表情，说话时嘴型清晰，真实光照，稳定人脸",
+        height=100
     )
 
-with col2:
-    uploaded_audio = st.file_uploader(
-        "🎵 拖拽音频（MP3）",
-        type=["mp3", "wav"]
-    )
 
-image_url = None
-audio_url = None
+    st.markdown("### 📥 输入（拖拽）")
 
-if uploaded_image:
-    image_url = save_uploaded_file(uploaded_image, "jpg")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        uploaded_image = st.file_uploader(
+            "🖼 拖拽图片（JPG / PNG）",
+            type=["jpg", "jpeg", "png"]
+        )
+
+    with col2:
+        uploaded_audio = st.file_uploader(
+            "🎵 拖拽音频（MP3）",
+            type=["mp3", "wav"]
+        )
+
+    image_url = None
+    audio_url = None
+
+    if uploaded_image:
+        image_url = save_uploaded_file(uploaded_image, "jpg")
+        # print(image_url)
+        st.image(image_url, caption="已上传图片", width=256)
+
+    if uploaded_audio:
+        audio_url = save_uploaded_file(uploaded_audio, "mp3")
+        st.audio(audio_url)
+
+    # print("8"*50)
     # print(image_url)
-    st.image(image_url, caption="已上传图片", width=256)
 
-if uploaded_audio:
-    audio_url = save_uploaded_file(uploaded_audio, "mp3")
-    st.audio(audio_url)
+    # ======================
+    # Step 1：检测
+    # ======================
+    if st.session_state.stage == "idle":
+        if st.button("🔍 开始检测"):
+            with st.spinner("目标检测中..."):
+                query = formatQuery({"Action": "CVProcess", "Version": "2022-08-31"})
+                body = json.dumps({
+                    "req_key": "jimeng_realman_avatar_object_detection",
+                    "image_url": image_url
+                })
 
-# print("8"*50)
-# print(image_url)
+                resp_str = signV4Request(access_key, secret_key, service, query, body)
+                if not resp_str:
+                    st.error("检测失败")
+                    st.stop()
 
-# ======================
-# Step 1：检测
-# ======================
-if st.session_state.stage == "idle":
-    if st.button("🔍 开始检测"):
-        with st.spinner("目标检测中..."):
-            query = formatQuery({"Action": "CVProcess", "Version": "2022-08-31"})
+                resp = json.loads(resp_str)
+                resp_data = json.loads(resp["data"]["resp_data"])
+                st.session_state.mask_list = resp_data["object_detection_result"]["mask"]["url"]
+                st.session_state.stage = "detected"
+            
+
+
+                origin_img = load_image_from_url(image_url)
+
+                mask_urls_ = resp_data["object_detection_result"]["mask"]["url"]
+
+                visual_masks = []
+
+                mask_urls = []
+
+                for url in mask_urls_:
+                    mask_img = load_image_from_url(url)
+                    mask_urls.append(save_Image_file(mask_img, "png"))
+                
+                for url in mask_urls:
+                    try:
+                        mask_img = load_image_from_url(url)
+                        preview = crop_by_mask(origin_img, mask_img)
+
+                        if preview:
+                            visual_masks.append({
+                                "mask_url": url,
+                                "preview": preview
+                            })
+                    except Exception as e:
+                        print("mask error:", e)
+
+                visual_masks.append({
+                    "mask_url": None,            # 关键：None 表示不使用 mask
+                    "preview": origin_img.resize((256, 256)),
+                    "label": "原图（不使用 Mask）"
+                })
+
+                st.session_state.masks = visual_masks
+                st.session_state.stage = "detected"
+
+                st.experimental_rerun()
+
+
+    # ======================
+    # Step 2：选择 mask
+    # ======================
+    # if st.session_state.stage == "detected":
+    #     st.success(f"检测完成，共 {len(st.session_state.mask_list)} 个 mask")
+    #     st.session_state.selected_mask = st.selectbox(
+    #         "请选择一个 mask",
+    #         st.session_state.mask_list
+    #     )
+    #     if st.button("➡️ 使用该 mask"):
+    #         st.session_state.stage = "mask_selected"
+    #         st.experimental_rerun()
+    if st.session_state.stage == "detected":
+        st.success(f"检测完成，共 {len(st.session_state.masks)} 个主体")
+
+        cols = st.columns(4)
+        selected_index = None
+
+        # for i, item in enumerate(st.session_state.masks):
+        #     with cols[i % 4]:
+        #         st.image(item["preview"], width=220)
+        #         if st.button(f"选择 #{i+1}", key=f"mask_{i}"):
+        #             selected_index = i
+        for i, item in enumerate(st.session_state.masks):
+            with cols[i % 4]:
+                st.image(item["preview"], width=220)
+
+                label = f"主体 #{i}" if item["mask_url"] is not None else '原图'
+                if st.button(f"选择 {label}", key=f"mask_{i}"):
+                    selected_index = i
+
+
+        if selected_index is not None:
+            st.session_state.selected_mask = st.session_state.masks[selected_index]["mask_url"]
+            st.session_state.stage = "mask_selected"
+            st.experimental_rerun()
+
+    # ======================
+    # Step 3：提交任务
+    # ======================
+    if st.session_state.stage == "mask_selected":
+        with st.spinner("提交生成任务中..."):
+            query = formatQuery({"Action": "CVSubmitTask", "Version": "2022-08-31"})
             body = json.dumps({
-                "req_key": "jimeng_realman_avatar_object_detection",
-                "image_url": image_url
+                "req_key": "jimeng_realman_avatar_picture_omni_v15",
+                "image_url": image_url,
+                "mask_url": [st.session_state.selected_mask] if st.session_state.selected_mask else [],
+                "audio_url": audio_url,
+                "prompt": prompt
             })
 
             resp_str = signV4Request(access_key, secret_key, service, query, body)
             if not resp_str:
-                st.error("检测失败")
+                st.error("提交失败")
                 st.stop()
 
             resp = json.loads(resp_str)
-            resp_data = json.loads(resp["data"]["resp_data"])
-            st.session_state.mask_list = resp_data["object_detection_result"]["mask"]["url"]
-            st.session_state.stage = "detected"
-           
-
-
-            origin_img = load_image_from_url(image_url)
-
-            mask_urls_ = resp_data["object_detection_result"]["mask"]["url"]
-
-            visual_masks = []
-
-            mask_urls = []
-
-            for url in mask_urls_:
-                mask_img = load_image_from_url(url)
-                mask_urls.append(save_Image_file(mask_img, "png"))
-            
-            for url in mask_urls:
-                try:
-                    mask_img = load_image_from_url(url)
-                    preview = crop_by_mask(origin_img, mask_img)
-
-                    if preview:
-                        visual_masks.append({
-                            "mask_url": url,
-                            "preview": preview
-                        })
-                except Exception as e:
-                    print("mask error:", e)
-
-            visual_masks.append({
-                "mask_url": None,            # 关键：None 表示不使用 mask
-                "preview": origin_img.resize((256, 256)),
-                "label": "原图（不使用 Mask）"
-            })
-
-            st.session_state.masks = visual_masks
-            st.session_state.stage = "detected"
-
+            st.session_state.task_id = resp["data"]["task_id"]
+            st.session_state.stage = "submitted"
             st.experimental_rerun()
 
-
-# ======================
-# Step 2：选择 mask
-# ======================
-# if st.session_state.stage == "detected":
-#     st.success(f"检测完成，共 {len(st.session_state.mask_list)} 个 mask")
-#     st.session_state.selected_mask = st.selectbox(
-#         "请选择一个 mask",
-#         st.session_state.mask_list
-#     )
-#     if st.button("➡️ 使用该 mask"):
-#         st.session_state.stage = "mask_selected"
-#         st.experimental_rerun()
-if st.session_state.stage == "detected":
-    st.success(f"检测完成，共 {len(st.session_state.masks)} 个主体")
-
-    cols = st.columns(4)
-    selected_index = None
-
-    # for i, item in enumerate(st.session_state.masks):
-    #     with cols[i % 4]:
-    #         st.image(item["preview"], width=220)
-    #         if st.button(f"选择 #{i+1}", key=f"mask_{i}"):
-    #             selected_index = i
-    for i, item in enumerate(st.session_state.masks):
-        with cols[i % 4]:
-            st.image(item["preview"], width=220)
-
-            label = f"主体 #{i}" if item["mask_url"] is not None else '原图'
-            if st.button(f"选择 {label}", key=f"mask_{i}"):
-                selected_index = i
-
-
-    if selected_index is not None:
-        st.session_state.selected_mask = st.session_state.masks[selected_index]["mask_url"]
-        st.session_state.stage = "mask_selected"
-        st.experimental_rerun()
-
-# ======================
-# Step 3：提交任务
-# ======================
-if st.session_state.stage == "mask_selected":
-    with st.spinner("提交生成任务中..."):
-        query = formatQuery({"Action": "CVSubmitTask", "Version": "2022-08-31"})
+    # ======================
+    # Step 4：轮询
+    # ======================
+    if st.session_state.stage == "submitted":
+        st.markdown("### ⏳ 视频生成中")
+        bar = st.progress(10)
+        query = formatQuery({"Action": "CVGetResult", "Version": "2022-08-31"})
         body = json.dumps({
             "req_key": "jimeng_realman_avatar_picture_omni_v15",
-            "image_url": image_url,
-            "mask_url": [st.session_state.selected_mask] if st.session_state.selected_mask else [],
-            "audio_url": audio_url,
-            "prompt": prompt
+            "task_id": st.session_state.task_id
         })
 
-        resp_str = signV4Request(access_key, secret_key, service, query, body)
-        if not resp_str:
-            st.error("提交失败")
-            st.stop()
+        for i in range(1, 200):
+            resp_str = signV4Request(access_key, secret_key, service, query, body)
+            resp = json.loads(resp_str)
+            if resp["data"]["status"] == "done":
+                st.session_state.video_url = resp["data"]["video_url"]
+                st.session_state.stage = "done"
+                bar.progress(100)
+                st.experimental_rerun()
+            bar.progress(min(10 + i * 3, 95))
+            time.sleep(3)
 
-        resp = json.loads(resp_str)
-        st.session_state.task_id = resp["data"]["task_id"]
-        st.session_state.stage = "submitted"
-        st.experimental_rerun()
+        st.error("任务超时")
 
-# ======================
-# Step 4：轮询
-# ======================
-if st.session_state.stage == "submitted":
-    st.markdown("### ⏳ 视频生成中")
-    bar = st.progress(10)
-    query = formatQuery({"Action": "CVGetResult", "Version": "2022-08-31"})
-    body = json.dumps({
-        "req_key": "jimeng_realman_avatar_picture_omni_v15",
-        "task_id": st.session_state.task_id
-    })
+    # ======================
+    # Step 5：结果 + 下载
+    # ======================
+    # if st.session_state.stage == "done":
+    #     st.success("🎉 生成完成")
+    #     st.video(st.session_state.video_url)
 
-    for i in range(1, 200):
-        resp_str = signV4Request(access_key, secret_key, service, query, body)
-        resp = json.loads(resp_str)
-        if resp["data"]["status"] == "done":
-            st.session_state.video_url = resp["data"]["video_url"]
-            st.session_state.stage = "done"
-            bar.progress(100)
+    #     video_path = "result.mp4"
+    #     if not os.path.exists(video_path):
+    #         with requests.get(st.session_state.video_url, stream=True) as r:
+    #             with open(video_path, "wb") as f:
+    #                 for chunk in r.iter_content(1024 * 1024):
+    #                     if chunk:
+    #                         f.write(chunk)
+
+    #     with open(video_path, "rb") as f:
+    #         st.download_button(
+    #             "📥 下载视频",
+    #             f,
+    #             file_name="result.mp4",
+    #             mime="video/mp4"
+    #         )
+
+    #     if st.button("🔄 重新开始"):
+    #         for k in list(st.session_state.keys()):
+    #             del st.session_state[k]
+    #         st.experimental_rerun()
+
+    import uuid
+    from datetime import datetime
+
+    if st.session_state.stage == "done":
+        st.success("🎉 生成完成")
+        st.video(st.session_state.video_url)
+
+        # === 生成 日期 + UUID 文件名 ===
+        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        uid = uuid.uuid4().hex[:8]
+        filename = f"result_{date_str}_{uid}.mp4"
+        video_path = os.path.join("res", filename)  # 可改为你想保存的目录
+
+        # === 下载并缓存 ===
+        if not os.path.exists(video_path):
+            with requests.get(st.session_state.video_url, stream=True) as r:
+                r.raise_for_status()
+                with open(video_path, "wb") as f:
+                    for chunk in r.iter_content(1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+
+        # === 下载按钮 ===
+        with open(video_path, "rb") as f:
+            st.download_button(
+                "📥 下载视频",
+                f,
+                file_name=filename,
+                mime="video/mp4"
+            )
+
+        # === 重置 ===
+        if st.button("🔄 重新开始"):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
             st.experimental_rerun()
-        bar.progress(min(10 + i * 3, 95))
-        time.sleep(3)
-
-    st.error("任务超时")
-
-# ======================
-# Step 5：结果 + 下载
-# ======================
-# if st.session_state.stage == "done":
-#     st.success("🎉 生成完成")
-#     st.video(st.session_state.video_url)
-
-#     video_path = "result.mp4"
-#     if not os.path.exists(video_path):
-#         with requests.get(st.session_state.video_url, stream=True) as r:
-#             with open(video_path, "wb") as f:
-#                 for chunk in r.iter_content(1024 * 1024):
-#                     if chunk:
-#                         f.write(chunk)
-
-#     with open(video_path, "rb") as f:
-#         st.download_button(
-#             "📥 下载视频",
-#             f,
-#             file_name="result.mp4",
-#             mime="video/mp4"
-#         )
-
-#     if st.button("🔄 重新开始"):
-#         for k in list(st.session_state.keys()):
-#             del st.session_state[k]
-#         st.experimental_rerun()
-
-import uuid
-from datetime import datetime
-
-if st.session_state.stage == "done":
-    st.success("🎉 生成完成")
-    st.video(st.session_state.video_url)
-
-    # === 生成 日期 + UUID 文件名 ===
-    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-    uid = uuid.uuid4().hex[:8]
-    filename = f"result_{date_str}_{uid}.mp4"
-    video_path = os.path.join("res", filename)  # 可改为你想保存的目录
-
-    # === 下载并缓存 ===
-    if not os.path.exists(video_path):
-        with requests.get(st.session_state.video_url, stream=True) as r:
-            r.raise_for_status()
-            with open(video_path, "wb") as f:
-                for chunk in r.iter_content(1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
-
-    # === 下载按钮 ===
-    with open(video_path, "rb") as f:
-        st.download_button(
-            "📥 下载视频",
-            f,
-            file_name=filename,
-            mime="video/mp4"
-        )
-
-    # === 重置 ===
-    if st.button("🔄 重新开始"):
-        for k in list(st.session_state.keys()):
-            del st.session_state[k]
-        st.experimental_rerun()
 
