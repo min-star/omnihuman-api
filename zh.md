@@ -13,6 +13,7 @@
 
   * 支持火山引擎 Access Key / Secret Key 在页面中直接输入
   * 无需写死在代码中，便于多账号切换
+  * api key申请地址：https://console.volcengine.com/iam/keymanage
 
 * 🖼 **图片上传（人物图像）**
 
@@ -152,6 +153,39 @@ python -m http.server 8000
 > * cloudflared
 
 ---
+
+生产环境配置步骤
+* 安装cloudflared
+```bash
+# 下载
+wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+ 
+# 改名
+mv cloudflared-linux-amd64 cloudflared
+ 
+# 加执行权限
+chmod +x cloudflared
+ 
+# 移到 PATH
+sudo mv cloudflared /usr/local/bin/
+```
+* 启动运行
+
+本地启动 HTTP 服务
+```bash
+cd /home/yourname/data/uploads
+python -m http.server 8000
+```
+新开一个终端，启动隧道
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+会看到类似输出：
+
+https://random-name.trycloudflare.com
+
+访问你的音频
+https://random-name.trycloudflare.com/test.mp3
 
 ## 六、启动项目
 
