@@ -239,6 +239,7 @@ http://localhost:8501
 
 本项目仅作为 **火山引擎即梦 API 使用示例（Demo）**。
 生成效果、接口能力、配额限制等以火山引擎官方文档为准。
+参考链接：https://jimeng.jianying.com/ai-tool/generate?type=digitalHuman
 
 ---
 
